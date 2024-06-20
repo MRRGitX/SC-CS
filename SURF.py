@@ -1,13 +1,20 @@
-﻿import rasterio
+﻿##### #####       ##### #####
+#     #           #     #
+##### #    #####  #     #####
+    # #           #         #
+##### #####       ##### #####
+
+import rasterio
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 import os
+import argparse
 
 # Путь к файлам изображения
 
-layout_path = 'C:/Users/79192/resized.tif'
-crop_path = 'C:/Users/79192/Downloads/18_Sitronics/18_Sitronics/1_20/crop_0_0_0000.tif'
+### layout_path = 'C:/Users/79192/resized.tif'                                              ###
+### crop_path = 'C:/Users/79192/Downloads/18_Sitronics/18_Sitronics/1_20/crop_0_0_0000.tif' ###
 
 # Функция для нормализации каналов
 def normalize(array):
@@ -65,57 +72,65 @@ def show_image(img, title="Image", cmap_type=None):
     plt.axis('off')
     plt.show()
 
-# Подготовка изображений
-merge_layout, original_img_bw = preparation_tif(layout_path)
-merge_crop, query_img_bw = preparation_tif(crop_path)
+# Обращение к программе через скрипт
+if __name__ == '__main__':
 
-# Сохранение layout в формате JPEG с уменьшенным качеством
-layout_jpeg_path = 'C:/Users/79192/Downloads/18_Sitronics/18_Sitronics/layouts/layout_2021_10_10_compressed.jpg'
-cv2.imwrite(layout_jpeg_path, merge_layout, [int(cv2.IMWRITE_JPEG_QUALITY), 50])  # 50 - качество JPEG
+    while True:
+        parser = argparse.ArgumentParser(description='Path to files')
+        parser.add_argument('layout_path', type=str, help='Path to layout file') # Путь к layout файлу
+        parser.add_argument('crop_path', type=str, help='Path to crop file')     # Путь к crop файлу
+        args = parser.parse_args()
 
-# Инициализация SIFT детектора с уменьшенным количеством точек
-sift = cv2.SIFT_create(5000)  # Уменьшаем количество точек до 300 
-# вот здесь (сверху) в ошибку сваливается, если в полном разрешении считать, даже 5k точек недостаточно
+        layout_path = args.layout_path
+        crop_path = args.crop_path
 
-# Поиск ключевых точек и дескрипторов
-queryKP, queryDes = sift.detectAndCompute(query_img_bw, None)
-trainKP, trainDes = sift.detectAndCompute(original_img_bw, None)
+        # Подготовка изображений
+        merge_layout, original_img_bw = preparation_tif(layout_path)
+        merge_crop, query_img_bw = preparation_tif(crop_path)
 
-# Проверка на наличие дескрипторов
-if queryDes is None or trainDes is None:
-    raise ValueError("Не удалось найти ключевые точки и дескрипторы на одном из изображений")
+        # Сохранение layout в формате JPEG с уменьшенным качеством
+        layout_jpeg_path = 'C:/Users/79192/Downloads/18_Sitronics/18_Sitronics/layouts/layout_2021_10_10_compressed.jpg'
+        cv2.imwrite(layout_jpeg_path, merge_layout, [int(cv2.IMWRITE_JPEG_QUALITY), 50])  # 50 - качество JPEG
 
-# Сопоставление дескрипторов
-matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-matches = matcher.match(queryDes, trainDes)
-matches = sorted(matches, key=lambda x: x.distance)
+        # Инициализация SIFT детектора с уменьшенным количеством точек
+        sift = cv2.SIFT_create(5000)  # Уменьшаем количество точек до 300 
+        # вот здесь (сверху) в ошибку сваливается, если в полном разрешении считать, даже 5k точек недостаточно
 
-# Сопоставление изображений
-final_img = cv2.drawMatches(merge_crop, queryKP, merge_layout, trainKP, matches[:20], None)
+        # Поиск ключевых точек и дескрипторов
+        queryKP, queryDes = sift.detectAndCompute(query_img_bw, None)
+        trainKP, trainDes = sift.detectAndCompute(original_img_bw, None)
 
-# Изменение размера изображения для отображения
-final_img = cv2.resize(final_img, (1000, 650))
+        # Проверка на наличие дескрипторов
+        if queryDes is None or trainDes is None:
+            raise ValueError("Не удалось найти ключевые точки и дескрипторы на одном из изображений")
 
-if len(matches) > 12:  # Убедимся, что у нас достаточно совпадений
-    src_pts = np.float32([queryKP[m.queryIdx].pt for m in matches]).reshape(-1, 2)
-    dst_pts = np.float32([trainKP[m.trainIdx].pt for m in matches]).reshape(-1, 2)
+        # Сопоставление дескрипторов
+        matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+        matches = matcher.match(queryDes, trainDes)
+        matches = sorted(matches, key=lambda x: x.distance)
 
-    M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-    h, w = query_img_bw.shape
-    pts = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)  # координаты углов шаблона
-    dst = cv2.perspectiveTransform(pts, M)
-    layout_with_box = cv2.polylines(merge_layout, [np.int32(dst)], True, (0, 255, 0), 3, cv2.LINE_AA)
-else:
-    layout_with_box = merge_layout
+        # Сопоставление изображений
+        final_img = cv2.drawMatches(merge_crop, queryKP, merge_layout, trainKP, matches[:20], None)
 
-# Отображение изображений
-show_image(merge_crop, "Original RGB Image (Crop)")
-show_image(merge_layout, "Original RGB Image (Layout)")
-show_image(query_img_bw, "Grayscale Image (Crop)", cmap_type='gray')
-show_image(original_img_bw, "Grayscale Image (Layout)", cmap_type='gray')
-show_image(final_img, "Matches")
-show_image(layout_with_box, "Detected Crop Location")
+        # Изменение размера изображения для отображения
+        final_img = cv2.resize(final_img, (1000, 650))
 
+        if len(matches) > 12:  # Убедимся, что у нас достаточно совпадений
+            src_pts = np.float32([queryKP[m.queryIdx].pt for m in matches]).reshape(-1, 2)
+            dst_pts = np.float32([trainKP[m.trainIdx].pt for m in matches]).reshape(-1, 2)
 
+            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            h, w = query_img_bw.shape
+            pts = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)  # координаты углов шаблона
+            dst = cv2.perspectiveTransform(pts, M)
+            layout_with_box = cv2.polylines(merge_layout, [np.int32(dst)], True, (0, 255, 0), 3, cv2.LINE_AA)
+        else:
+            layout_with_box = merge_layout
 
-
+        # Отображение изображений
+        show_image(merge_crop, "Original RGB Image (Crop)")
+        show_image(merge_layout, "Original RGB Image (Layout)")
+        show_image(query_img_bw, "Grayscale Image (Crop)", cmap_type='gray')
+        show_image(original_img_bw, "Grayscale Image (Layout)", cmap_type='gray')
+        show_image(final_img, "Matches")
+        show_image(layout_with_box, "Detected Crop Location")
